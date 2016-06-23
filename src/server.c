@@ -4,7 +4,6 @@
 #include <unistd.h>
 #include "server.h"
 
-
 struct server {
     volatile bool running;
     int socket;
@@ -50,6 +49,8 @@ bool server_start( server_t* server, const char* localhost, int port )
     {
         fprintf( stderr, "ERROR: Unable to get localhost address\n");
         perror( "Problem" );
+        close( server->socket );
+        server->socket = 0;
         return false;
     }
 
@@ -58,6 +59,8 @@ bool server_start( server_t* server, const char* localhost, int port )
     {
         fprintf( stderr, "ERROR: Unable to set socket option IPV6_V6ONLY\n" );
         perror( "Problem" );
+        close( server->socket );
+        server->socket = 0;
         return false;
     }
 
@@ -65,6 +68,8 @@ bool server_start( server_t* server, const char* localhost, int port )
     {
         fprintf( stderr, "ERROR: Unable to bind to %s:%d\n", localhost, port );
         perror( "Problem" );
+        close( server->socket );
+        server->socket = 0;
         return false;
     }
 
@@ -72,6 +77,8 @@ bool server_start( server_t* server, const char* localhost, int port )
     {
         fprintf( stderr, "ERROR: Unable to listen\n" );
         perror( "Problem" );
+        close( server->socket );
+        server->socket = 0;
         return false;
     }
 
