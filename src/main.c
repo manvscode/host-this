@@ -112,6 +112,12 @@ int main( int argc, char* argv[] )
         }
     }
 
+    if( app_state.verbose )
+    {
+        printf( "URL: http://%s:%d\n", app_state.address, app_state.port );
+        printf( "Path: %s\n", app_state.path );
+    }
+
     app_state.server = server_create( CONNECTION_QUEUE, NULL );
 
     if( !server_start( app_state.server, app_state.address, app_state.port ) )
@@ -127,6 +133,22 @@ int main( int argc, char* argv[] )
 
 void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* peer_address, void* user_data )
 {
+    if( server_socket(server) <= 0 )
+    {
+        return;
+    }
+
+    if( app_state.verbose )
+    {
+        char peer_address_str[ 46 ];
+        inet_ntop( peer_address->ss_family, peer_address, peer_address_str, sizeof(peer_address_str) );
+        peer_address_str[ sizeof(peer_address_str) - 1 ] = '\0';
+        printf( "Accepted connection from %s\n", peer_address_str );
+    }
+
+
+
+
     char request_buffer[ 512 ] = { '\0' };
 
     //recv( peer_socket, request_buffer, sizeof(request_buffer), 0 );
@@ -147,7 +169,7 @@ void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* 
         {
             *requested_file_end = '\0';
             url_decode( requested_file );
-            printf( "File: %s\n", requested_file );
+            //printf( "File: %s\n", requested_file );
         }
 #else
         char* request_line = NULL;
@@ -182,7 +204,10 @@ void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* 
     }
     absolute_path[ sizeof(absolute_path) - 1 ] = '\0';
 
-    printf( "Path: %s\n", absolute_path );
+    if( app_state.verbose )
+    {
+        printf( "Requested File: %s\n", absolute_path );
+    }
 
     if( is_directory( absolute_path ) )
     {
@@ -224,7 +249,6 @@ void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* 
         file_entry_t* files = NULL;
         vector_create( files, 1 );
 
-        printf( "%s is a dir\n", absolute_path );
         directory_enumerate( absolute_path, false, ENUMERATE_ALL, process_directory_content, &files );
 
         if( vector_size(files) > 0 )
@@ -287,7 +311,6 @@ void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* 
     }
     else if( file_exists(absolute_path) )
     {
-        printf( "%s is a file\n", absolute_path );
         int content_len = file_size( absolute_path );
 
         textbuffer_t headers_buffer;

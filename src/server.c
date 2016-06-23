@@ -35,6 +35,16 @@ void server_destroy( server_t** server )
     }
 }
 
+int server_socket( server_t* server )
+{
+    return server ? server->socket : -1;
+}
+
+bool server_is_running( server_t* server )
+{
+    return server ? server->running : false;
+}
+
 bool server_start( server_t* server, const char* localhost, int port )
 {
     server->running = false;

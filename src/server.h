@@ -11,10 +11,12 @@ typedef struct server server_t;
 
 typedef void (*server_connection_fxn_t)( server_t* server, int peer_socket, struct sockaddr_storage* peer_address, void* user_data );
 
-server_t* server_create  ( int connection_queue, void* user_data );
-void      server_destroy ( server_t** server );
-bool      server_start   ( server_t* server, const char* localhost, int port );
-void      server_stop    ( server_t* server );
-void      server_run     ( server_t* server, server_connection_fxn_t handle_connection );
+server_t* server_create     ( int connection_queue, void* user_data );
+void      server_destroy    ( server_t** server );
+int       server_socket     ( server_t* server );
+bool      server_is_running ( server_t* server );
+bool      server_start      ( server_t* server, const char* localhost, int port );
+void      server_stop       ( server_t* server );
+void      server_run        ( server_t* server, server_connection_fxn_t handle_connection );
 
 #endif /* __SERVER_H__ */
