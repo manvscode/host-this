@@ -1,11 +1,11 @@
 #ifndef __TEXTBUFFER_H__
 #define __TEXTBUFFER_H__
 
-#include <libcollections/buffer.h>
+#include <collections/buffer.h>
 
 typedef struct textbuffer {
-    buffer_t* buffer;
-    size_t count; /* characters written */
+	lc_buffer_t* buffer;
+	size_t count; /* characters written */
 } textbuffer_t;
 
 void textbuffer_create( textbuffer_t* textbuffer );

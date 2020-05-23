@@ -14,4 +14,4 @@ Build Instructions
 
 Maintainers
 =====================
-* Joe Marrero <joe.marrero@citrix.com>
+* Joe Marrero <manvscode@gmail.com>
