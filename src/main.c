@@ -4,6 +4,7 @@
 #include <wchar.h>
 #include <ctype.h>
 #include <stdio.h>
+#include <math.h>
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -47,35 +48,46 @@ typedef struct file_entry {
 	int64_t size;
 } file_entry_t;
 
+typedef struct {
+	FILE* file;
+	int socket;
+	int64_t file_size;
+	unsigned char* buf;
+	size_t buf_size;
+	ssize_t bytes_remaining;
+} send_file_task_args_t;
+
 
 static void about( int argc, char* argv[] );
 static void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* peer_address, void* user_data );
 static void process_directory_content( const char* path, void* args );
+static bool send_file_task( int* percent, void* data );
 static char* get_requested_file( int peer_socket, char* buffer, size_t buffer_sz );
+static void print_verbose_prefix(const char* peer_address_str);
 static void print_verbosef(const char* peer_address_str, const char* format, ...);
 static void url_decode( char *s );
+
+static void quit(void)
+{
+	if (server_is_running(app_state.server) )
+	{
+		console_reset(stdout);
+		printf("\n");
+		console_text_faderf(stdout, TEXT_FADER_TO_ORANGE, "Stopping server...");
+		printf("\n");
+		server_stop(app_state.server);
+	}
+}
 
 
 static void signal_interrupt_handler( int dummy )
 {
-	if (server_is_running(app_state.server) )
-	{
-		printf( "\n" );
-		console_text_faderf( stdout, TEXT_FADER_TO_ORANGE, "Stopping server..." );
-		printf("\n");
-		server_stop( app_state.server );
-	}
+	quit();
 }
 
 static void signal_quit_handler( int dummy )
 {
-	if (server_is_running(app_state.server) )
-	{
-		printf( "\n" );
-		console_text_faderf( stdout, TEXT_FADER_TO_ORANGE, "Stopping server..." );
-		printf("\n");
-		server_stop( app_state.server );
-	}
+	quit();
 }
 
 int main( int argc, char* argv[] )
@@ -129,6 +141,8 @@ int main( int argc, char* argv[] )
 		}
 	}
 
+	console_hide_cursor(stdout);
+
 	console_fg_color_256(stdout, CONSOLE_COLOR256_BRIGHT_YELLOW);
 	printf("  _    _           _      \n");
 	printf(" | |  | |         | |     \n");
@@ -176,10 +190,11 @@ int main( int argc, char* argv[] )
 	server_run( app_state.server, on_connection );
 	server_destroy( &app_state.server );
 
+	console_show_cursor(stdout);
+
 	return 0;
 }
-
-void print_verbosef(const char* peer_address_str, const char* format, ...)
+void print_verbose_prefix(const char* peer_address_str)
 {
 	const size_t peer_address_hash = string_hash(peer_address_str);
 	const int colors[] = {
@@ -191,19 +206,23 @@ void print_verbosef(const char* peer_address_str, const char* format, ...)
 		CONSOLE_COLOR256_BRIGHT_BLUE,
 	};
 	const size_t colors_count = sizeof(colors) / sizeof(colors[0]);
+	int len = strlen(peer_address_str);
 
 	console_fg_color_256( stdout, CONSOLE_COLOR256_GREY_11);
 	printf("[");
-	console_reset(stdout);
 
 	console_fg_color_256(stdout, colors[peer_address_hash % colors_count]);
-	printf("%s", peer_address_str);
-	console_reset(stdout);
+	printf("%-.*s", len, peer_address_str);
 
 	console_fg_color_256( stdout, CONSOLE_COLOR256_GREY_11);
 	printf("] ");
-	console_reset(stdout);
 
+	console_set_column(stdout, len + 3 + 1);
+}
+
+void print_verbosef(const char* peer_address_str, const char* format, ...)
+{
+	print_verbose_prefix(peer_address_str);
 
 	char fmtbuf[ 256 ];
 	va_list args;
@@ -213,7 +232,7 @@ void print_verbosef(const char* peer_address_str, const char* format, ...)
 	va_end( args );
 
 	console_text_fader( stdout, TEXT_FADER_TO_WHITE, fmtbuf );
-	printf("\n");
+	console_reset(stdout);
 }
 
 char* get_requested_file( int peer_socket, char* buffer, size_t buffer_sz )
@@ -276,6 +295,7 @@ void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* 
 	if( app_state.verbose )
 	{
 		print_verbosef(peer_address_str, "Accepted connection.");
+		printf("\n");
 	}
 
 	char request_buffer[ 512 ] = { '\0' };
@@ -307,13 +327,14 @@ void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* 
 	}
 	absolute_path[ sizeof(absolute_path) - 1 ] = '\0';
 
-	if( app_state.verbose )
-	{
-		print_verbosef(peer_address_str, "Sending %s", absolute_path );
-	}
-
 	if( is_directory( absolute_path ) )
 	{
+		if( app_state.verbose )
+		{
+			print_verbosef(peer_address_str, "Sending directory contents for \"%s\"", absolute_path );
+			printf("\n");
+		}
+
 		textbuffer_t body_buffer;
 
 		textbuffer_create( &body_buffer );
@@ -414,8 +435,13 @@ void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* 
 	}
 	else if( file_exists(absolute_path) )
 	{
-		int content_len = file_size( absolute_path );
+		if( app_state.verbose )
+		{
+			print_verbosef(peer_address_str, "Requested file \"%s\" ", absolute_path );
+			printf("\n");
+		}
 
+		int64_t content_len = file_size( absolute_path );
 		const char* filename = file_basename( absolute_path );
 
 		textbuffer_t headers_buffer;
@@ -424,7 +450,7 @@ void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* 
 		textbuffer_printf( &headers_buffer, "HTTP/1.1 200 OK\r\n" );
 		textbuffer_printf( &headers_buffer, "Content-Type: application/octet-stream\r\n" );
 		textbuffer_printf( &headers_buffer, "Content-Disposition: attachment; filename=\"%s\"\r\n", filename );
-		textbuffer_printf( &headers_buffer, "Content-Length: %d\r\n", content_len );
+		textbuffer_printf( &headers_buffer, "Content-Length: %ld\r\n", content_len );
 		textbuffer_printf( &headers_buffer, "Cache-Control: no-cache, no-store, must-revalidate\r\n" );
 		textbuffer_printf( &headers_buffer, "Pragma: no-cache\r\n" );
 		textbuffer_printf( &headers_buffer, "Expires: 0\r\n" );
@@ -432,35 +458,40 @@ void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* 
 
 		send( peer_socket, lc_buffer_data(headers_buffer.buffer), headers_buffer.count, 0 );
 
-		FILE* file = fopen( absolute_path, "rb" );
+		textbuffer_destroy( &headers_buffer );
 
+		FILE* file = fopen( absolute_path, "rb" );
 		if( file )
 		{
 			unsigned char buffer[ 4096 ];
-			size_t bytes_sent = 0;
+			send_file_task_args_t args = {
+				.file = file,
+				.file_size = content_len,
+				.socket = peer_socket,
+				.buf = buffer,
+				.buf_size = sizeof(buffer),
+				.bytes_remaining = content_len,
+			};
 
-			while( !feof(file) && content_len > 0 )
+			if( app_state.verbose )
 			{
-				size_t bytes_read = fread( buffer, sizeof(char), sizeof(buffer), file );
-				ssize_t bytes_sent = 0;
+				print_verbose_prefix(peer_address_str);
 
-				while( bytes_read > 0 )
-				{
-					bytes_sent = send( peer_socket, buffer + bytes_sent, bytes_read, 0 );
-					bytes_read -= bytes_sent;
-					content_len -= bytes_sent;
-				}
+				char description[512];
+				snprintf(description, sizeof(description), "Sending \"%s\"", absolute_path);
+				description[ sizeof(description) - 1 ] = '\0';
+				console_progress_indicator( stdout, description, PROGRESS_INDICATOR_STYLE_BLUE, send_file_task, &args );
 			}
 
 			fclose( file );
 		}
 
-		textbuffer_destroy( &headers_buffer );
 	}
 
 	if( app_state.verbose )
 	{
 		print_verbosef(peer_address_str, "Closing connection." );
+		printf("\n");
 	}
 }
 
@@ -474,6 +505,31 @@ void process_directory_content( const char* path, void* args )
 		.size = file_size(path_copy)
 	};
 	lc_vector_push( *entries, entry );
+}
+
+bool send_file_task( int* percent, void* data )
+{
+	send_file_task_args_t* args = (send_file_task_args_t*) data;
+	bool isSending = !feof(args->file) && args->bytes_remaining > 0;
+
+	if( isSending )
+	{
+		size_t bytes_read = fread( args->buf, sizeof(char), args->buf_size, args->file );
+		ssize_t bytes_sent = 0;
+
+		while( bytes_read > 0 )
+		{
+			bytes_sent = send( args->socket, args->buf + bytes_sent, bytes_read, 0 );
+			bytes_read -= bytes_sent;
+			args->bytes_remaining -= bytes_sent;
+		}
+	}
+
+	*percent = 100 * (args->file_size - args->bytes_remaining) / args->file_size;
+
+	fflush(stdout);
+
+	return isSending;
 }
 
 /* Convert an ASCII hex digit to the corresponding number between 0
