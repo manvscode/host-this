@@ -26,12 +26,13 @@
 #include <stdio.h>
 #include <math.h>
 #include <signal.h>
+#include <unistd.h>
+#include <errno.h>
+#include <ifaddrs.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <unistd.h>
-#include <errno.h>
 #define VECTOR_GROW_AMOUNT(array)      (10)
 #include <collections/vector.h>
 #include <collections/buffer.h>
@@ -52,14 +53,14 @@ struct {
 	bool verbose;
 	const char* title;
 	const char* path;
-	const char* address;
+	bool use_ip4;
 	short port;
 } app_state = {
 	.server  = NULL,
 	.verbose = false,
 	.title   = "Hosting Files",
 	.path    = ".",
-	.address = "::1",
+	.use_ip4 = false,
 	.port    = 8080,
 };
 
@@ -128,10 +129,9 @@ int main( int argc, char* argv[] )
 			{
 				app_state.verbose = true;
 			}
-			else if( strcmp( "-a", argv[arg] ) == 0 || strcmp( "--address", argv[arg] ) == 0 )
+			else if( strcmp( "-4", argv[arg] ) == 0 || strcmp( "--ip4", argv[arg] ) == 0 )
 			{
-				app_state.address = argv[ arg + 1 ];
-				arg++;
+				app_state.use_ip4 = true;
 			}
 			else if( strcmp( "-p", argv[arg] ) == 0 || strcmp( "--port", argv[arg] ) == 0 )
 			{
@@ -184,21 +184,69 @@ int main( int argc, char* argv[] )
 	console_reset(stdout);
 
 	console_fg_color_256(stdout, CONSOLE_COLOR256_BRIGHT_CYAN);
-	printf("\"%s\"", app_state.path);
+	printf("\"%s\"\n", app_state.path);
 	console_reset(stdout);
 
+	/*
+	 * We show all of the possible addresses that
+	 * can be used to connect.
+	 */
 	console_fg_color_256(stdout, CONSOLE_COLOR256_GREY_17);
-	printf(" at ");
+	printf("Connect at:\n");
 	console_reset(stdout);
 
-	console_fg_color_256(stdout, CONSOLE_COLOR256_BRIGHT_CYAN);
-	printf("http://[%s]:%d", app_state.address, app_state.port);
-	console_reset(stdout);
-	printf("\n\n");
+	struct ifaddrs* interfaces = NULL;
+	if(!getifaddrs(&interfaces))
+	{
+		for( struct ifaddrs* interface = interfaces;
+			 interface != NULL;
+			 interface = interface->ifa_next )
+		{
+			if( strcmp(interface->ifa_name, "lo") == 0 ) continue; // skip loopback address.
+			struct sockaddr* address = interface->ifa_addr;
 
-	app_state.server = server_create( CONNECTION_QUEUE, NULL );
+			int address_family = app_state.use_ip4 ? AF_INET : AF_INET6;
 
-	if( !server_start( app_state.server, app_state.address, app_state.port ) )
+			if( address && address->sa_family == address_family )
+			{
+				void* local_ip = NULL;
+				if( address_family == AF_INET)
+				{
+					local_ip = &((struct sockaddr_in*) address)->sin_addr;
+				}
+				else
+				{
+					local_ip = &((struct sockaddr_in6*) address)->sin6_addr;
+				}
+
+				char address_string[128];
+				if( !inet_ntop(address_family, local_ip, address_string, sizeof(address_string)))
+				{
+					console_reset(stdout);
+					perror("ERROR");
+					return -3;
+				}
+
+				console_fg_color_256(stdout, CONSOLE_COLOR256_GREY_17);
+				printf(" * ");
+
+				console_fg_color_256(stdout, CONSOLE_COLOR256_BRIGHT_CYAN);
+				printf( app_state.use_ip4 ? "http://%s:%d/\n" : "http://[%s]:%d/\n", address_string, app_state.port);
+				console_reset(stdout);
+			}
+		}
+
+		freeifaddrs(interfaces);
+	}
+	printf("\n");
+
+	app_state.server = server_create( app_state.use_ip4, CONNECTION_QUEUE, NULL );
+
+	/*
+	 * Start server and bind to the address passed in
+	 * from the command line or bind to all interfaces.
+	 */
+	if( !server_start( app_state.server, NULL, app_state.port ) )
 	{
 		return -3;
 	}
@@ -489,15 +537,12 @@ void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* 
 				.bytes_remaining = content_len,
 			};
 
-			if( app_state.verbose )
-			{
-				print_verbose_prefix(peer_address_str);
+			print_verbose_prefix(peer_address_str);
 
-				char description[512];
-				snprintf(description, sizeof(description), "Sending \"%s\"", absolute_path);
-				description[ sizeof(description) - 1 ] = '\0';
-				console_progress_indicator( stdout, description, PROGRESS_INDICATOR_STYLE_BLUE, send_file_task, &args );
-			}
+			char description[512];
+			snprintf(description, sizeof(description), "Sending \"%s\"", absolute_path);
+			description[ sizeof(description) - 1 ] = '\0';
+			console_progress_indicator( stdout, description, PROGRESS_INDICATOR_STYLE_BLUE, send_file_task, &args );
 
 			fclose( file );
 		}

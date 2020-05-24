@@ -22,7 +22,9 @@ from their web browser. Then the other users can select which files they would l
 			| |  | | | | \__ \
 			|_|  |_| |_|_|___/
 	
-	Serving files from "." at http://[::1]:9000
+	Serving files from "." at http://[::1]:9000/
+
+**To share**, tell your friends to go to *http://[::1]:9000/* with their web browser.
 
 **To stop**, just hit `CTRL-C` and you should see:
 
