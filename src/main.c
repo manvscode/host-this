@@ -652,7 +652,7 @@ void about( int argc, char* argv[] )
 
 	printf( "Command Line Options:\n" );
 	printf( "    %-2s, %-12s  %-50s\n", "-v", "--verbose", "Toggles verbose mode." );
-	printf( "    %-2s, %-12s  %-50s\n", "-a", "--address", "Sets the address that the web server listens on (default is ::1)." );
+	printf( "    %-2s, %-12s  %-50s\n", "-4", "--ip4", "Toggles IPv4 mode." );
 	printf( "    %-2s, %-12s  %-50s\n", "-p", "--port", "Sets the port that the web server listens on (default is 8080)." );
 	printf( "    %-2s, %-12s  %-50s\n", "-t", "--title", "Sets the title on the web server." );
 
