@@ -34,10 +34,12 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #define VECTOR_GROW_AMOUNT(array)      (10)
-#include <collections/vector.h>
 #include <collections/buffer.h>
-#include <utility.h>
-#include <console.h>
+#include <collections/vector.h>
+#include <xtd/console.h>
+#include <xtd/filesystem.h>
+#include <xtd/memory.h>
+#include <xtd/string.h>
 #include "server.h"
 #include "textbuffer.h"
 
@@ -178,7 +180,6 @@ int main( int argc, char* argv[] )
 	printf("\n");
 	console_reset(stdout);
 
-
 	console_fg_color_256(stdout, CONSOLE_COLOR256_GREY_17);
 	printf("Serving files from ");
 	console_reset(stdout);
@@ -309,7 +310,7 @@ char* get_requested_file( int peer_socket, char* buffer, size_t buffer_sz )
 	{
 		setvbuf( request_stream, NULL, _IONBF, 0 );
 #if 1
-		readline( buffer, buffer_sz, request_stream );
+		file_readline( request_stream, buffer, buffer_sz );
 
 		char* position_of_space = strchr( buffer, ' ' );
 

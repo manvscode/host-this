@@ -1,13 +1,13 @@
 
-#CFLAGS = -std=c11 -D_DEFAULT_SOURCE -O0 -g -I /usr/local/include -I extern/include/ -I extern/include/collections-1.0.0/ -I extern/include/utility-1.0.0/
-CFLAGS = -std=c11 -D_DEFAULT_SOURCE -O2 -I /usr/local/include -I extern/include/collections-1.0.0/ -I extern/include/utility-1.0.0/
-LDFLAGS = -lm extern/lib/libutility.a extern/lib/libcollections.a -L /usr/local/lib -L extern/lib/ -L extern/libcollections/lib/
+#CFLAGS = -std=c11 -D_DEFAULT_SOURCE -O0 -g -I /usr/local/include -I extern/include/ -I extern/include/collections-1.0.0/ -I extern/include/xtd-1.0.0/
+CFLAGS = -std=c11 -D_DEFAULT_SOURCE -O2 -I /usr/local/include -I extern/include/collections-1.0.0/ -I extern/include/xtd-1.0.0/
+LDFLAGS = -lm extern/lib/libxtd.a extern/lib/libcollections.a -L /usr/local/lib -L extern/lib/ -L extern/libcollections/lib/
 CWD = $(shell pwd)
 BIN_NAME = ht
 
 SOURCES = src/main.c src/server.c src/textbuffer.c
 
-all: extern/libutility extern/libcollections bin/$(BIN_NAME)
+all: extern/libxtd extern/libcollections bin/$(BIN_NAME)
 
 bin/$(BIN_NAME): $(SOURCES:.c=.o)
 	@mkdir -p bin
@@ -22,10 +22,10 @@ src/%.o: src/%.c
 #################################################
 # Dependencies                                  #
 #################################################
-extern/libutility:
-	@mkdir -p extern/libutility/
-	@git clone https://bitbucket.org/manvscode/libutility.git extern/libutility/
-	@cd extern/libutility && autoreconf -i && ./configure --libdir=$(CWD)/extern/lib/ --includedir=$(CWD)/extern/include/ && make && make install
+extern/libxtd:
+	@mkdir -p extern/libxtd/
+	@git clone https://bitbucket.org/manvscode/libxtd.git extern/libxtd/
+	@cd extern/libxtd && autoreconf -i && ./configure --libdir=$(CWD)/extern/lib/ --includedir=$(CWD)/extern/include/ && make && make install
 
 extern/libcollections:
 	@mkdir -p extern/libcollections/
