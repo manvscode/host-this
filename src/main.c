@@ -38,6 +38,7 @@
 #include <collections/vector.h>
 #include <xtd/console.h>
 #include <xtd/filesystem.h>
+#include <xtd/cmdopt.h>
 #include <xtd/memory.h>
 #include <xtd/string.h>
 #include "server.h"
@@ -50,21 +51,15 @@
 
 #define VERSION "1.0"
 
-struct {
+typedef struct host_this_state {
 	server_t* server;
 	bool verbose;
 	const char* title;
 	const char* path;
 	bool use_ip4;
 	short port;
-} app_state = {
-	.server  = NULL,
-	.verbose = false,
-	.title   = "Hosting Files",
-	.path    = ".",
-	.use_ip4 = false,
-	.port    = 8080,
-};
+} host_this_state_t;
+
 
 typedef struct file_entry {
 	const char* path;
@@ -81,7 +76,7 @@ typedef struct {
 } send_file_task_args_t;
 
 
-static void about( int argc, char* argv[] );
+static void about( int argc, const char* argv[] );
 static void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* peer_address, void* user_data );
 static void process_directory_content( const char* path, void* args );
 static bool send_file_task( int* percent, void* data );
@@ -90,18 +85,124 @@ static void print_verbose_prefix(const char* peer_address_str);
 static void print_verbosef(const char* peer_address_str, const char* format, ...);
 static void url_decode( char *s );
 
+
+static bool cmd_opt_verbose( const cmd_opt_ctx_t* ctx, void* user_data )
+{
+	host_this_state_t* app_state = (host_this_state_t*) user_data;
+	app_state->verbose = true;
+	return true;
+}
+
+static bool cmd_opt_ip4( const cmd_opt_ctx_t* ctx, void* user_data )
+{
+	host_this_state_t* app_state = (host_this_state_t*) user_data;
+	app_state->use_ip4 = true;
+	return true;
+}
+
+static bool cmd_opt_port( const cmd_opt_ctx_t* ctx, void* user_data )
+{
+	host_this_state_t* app_state = (host_this_state_t*) user_data;
+	const char** arguments = cmd_opt_args( ctx );
+	size_t count = cmd_opt_args_count( ctx );
+	app_state->port = atoi( arguments[0] );
+	return true;
+}
+
+static bool cmd_opt_title( const cmd_opt_ctx_t* ctx, void* user_data )
+{
+	host_this_state_t* app_state = (host_this_state_t*) user_data;
+	const char** arguments = cmd_opt_args( ctx );
+	size_t count = cmd_opt_args_count( ctx );
+	app_state->title = arguments[0];
+	return true;
+}
+
+static bool cmd_opt_path( const cmd_opt_ctx_t* ctx, void* user_data )
+{
+	bool result = true;
+	const char** arguments = cmd_opt_args( ctx );
+	size_t count = cmd_opt_args_count( ctx );
+	host_this_state_t* app_state = (host_this_state_t*) user_data;
+
+	if( *arguments[0] != '-' )
+	{
+		bool valid_path = directory_exists(arguments[0]);
+		if( valid_path )
+		{
+			app_state->path = arguments[0];
+		}
+		else
+		{
+			fprintf( stderr, "ERROR: '%s is an invalid path.'\n", arguments[0] );
+			result = false;
+		}
+	}
+	else
+	{
+		fprintf( stderr, "ERROR: Unrecognized command line option '%s'\n", arguments[0] );
+		result = false;
+	}
+
+	return result;
+}
+
+static bool cmd_opt_help( const cmd_opt_ctx_t* ctx, void* user_data )
+{
+	int argc = cmd_opt_argc( ctx );
+	const char** argv = cmd_opt_argv( ctx );
+	about( argc, argv );
+	return false;
+}
+
+const cmd_opt_t OPTIONS[] = {
+	{ "-v", "--verbose", 0, "Toggles verbose mode.", cmd_opt_verbose },
+	{ "-4", "--ip4", 0, "Toggles IPv4 mode.", cmd_opt_ip4 },
+	{ "-p", "--port", 1, "Sets the port that the web server listens on (default is 8080).", cmd_opt_port },
+	{ "-t", "--title", 1, "Sets the title on the web server.", cmd_opt_title },
+	{ "-h", "--help", 0, "Show all of the possible options.", cmd_opt_help },
+};
+size_t OPTIONS_COUNT = sizeof(OPTIONS) / sizeof(OPTIONS[0]);
+
+
+
+
+static void cmd_opt_on_error( cmd_opt_result_t error, const char* opt, void* user_data )
+{
+	switch( error )
+	{
+		case CMD_OPT_ERR_UNEXPECTED_OPTION:
+			fprintf( stderr, "ERROR: Unexpected command line option '%s'\n", opt );
+			break;
+		case CMD_OPT_ERR_NO_OPTIONS:
+			fprintf( stderr, "ERROR: Need at least a directory path (see the --help option).\n" );
+			break;
+		case CMD_OPT_ERR_INVALID_ARG_COUNT:
+		{
+			const cmd_opt_t* option = cmd_opt_find( OPTIONS, OPTIONS_COUNT, opt );
+			fprintf( stderr, "ERROR: Unexpected %d arguments but encounted less for '%s'\n", option->opt_arg_count, opt );
+			break;
+		}
+		case CMD_OPT_ERR_ABORTED:
+		default:
+			break;
+	}
+}
+
+
+server_t* global_server_instance = NULL;
+
 static void quit(void)
 {
-	if (server_is_running(app_state.server) )
+	if (server_is_running(global_server_instance) )
 	{
 		console_reset(stdout);
 		printf("\n");
 		console_text_faderf(stdout, TEXT_FADER_TO_ORANGE, "Stopping server...");
 		printf("\n");
-		server_stop(app_state.server);
+		server_stop(global_server_instance);
 	}
 }
-
 
 static void signal_interrupt_handler( int dummy )
 {
@@ -118,49 +219,24 @@ int main( int argc, char* argv[] )
 	signal( SIGINT, signal_interrupt_handler );
 	signal( SIGQUIT, signal_quit_handler );
 
-	if( argc < 2 )
+	host_this_state_t app_state = {
+		.server  = NULL,
+		.verbose = false,
+		.title   = "Hosting Files",
+		.path    = ".",
+		.use_ip4 = false,
+		.port    = 8080,
+	};
+
+
+
+	cmd_opt_result_t option_result = cmd_opt_process( argc, argv,
+	                                                  OPTIONS, OPTIONS_COUNT,
+													  cmd_opt_on_error, cmd_opt_path, &app_state );
+	if( option_result != CMD_OPT_SUCCESS )
 	{
-		about( argc, argv );
+		printf( "JOE: %d\n", option_result );
 		return -1;
-	}
-	else
-	{
-		for( int arg = 1; arg < argc; arg++ )
-		{
-			if( strcmp( "-v", argv[arg] ) == 0 || strcmp( "--verbose", argv[arg] ) == 0 )
-			{
-				app_state.verbose = true;
-			}
-			else if( strcmp( "-4", argv[arg] ) == 0 || strcmp( "--ip4", argv[arg] ) == 0 )
-			{
-				app_state.use_ip4 = true;
-			}
-			else if( strcmp( "-p", argv[arg] ) == 0 || strcmp( "--port", argv[arg] ) == 0 )
-			{
-				app_state.port = atoi(argv[ arg + 1 ] );
-				arg++;
-			}
-			else if( strcmp( "-t", argv[arg] ) == 0 || strcmp( "--title", argv[arg] ) == 0 )
-			{
-				app_state.title = argv[ arg + 1 ];
-				arg++;
-			}
-			else if( argv[arg][0] != '-' )
-			{
-				app_state.path = argv[arg];
-			}
-			else if( strcmp( "-h", argv[arg] ) == 0 || strcmp( "--help", argv[arg] ) == 0 )
-			{
-				about( argc, argv );
-				return 0;
-			}
-			else
-			{
-				fprintf( stderr, "ERROR: Unrecognized command line option '%s'\n", argv[arg] );
-				about( argc, argv );
-				return -2;
-			}
-		}
 	}
 
 	console_hide_cursor(stdout);
@@ -241,7 +317,8 @@ int main( int argc, char* argv[] )
 	}
 	printf("\n");
 
-	app_state.server = server_create( app_state.use_ip4, CONNECTION_QUEUE, NULL );
+	app_state.server = server_create( app_state.use_ip4, CONNECTION_QUEUE, &app_state );
+	global_server_instance = app_state.server;
 
 	/*
 	 * Start server and bind to the address passed in
@@ -349,6 +426,8 @@ static char* get_peer_address(char* buffer, size_t sz, struct sockaddr_storage* 
 
 void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* peer_address, void* user_data )
 {
+	host_this_state_t* app_state = (host_this_state_t*) user_data;
+
 	if( server_socket(server) <= 0 )
 	{
 		return;
@@ -357,7 +436,7 @@ void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* 
 	char peer_address_str[ 46 ];
 	get_peer_address(peer_address_str, sizeof(peer_address_str), peer_address);
 
-	if( app_state.verbose )
+	if( app_state->verbose )
 	{
 		print_verbosef(peer_address_str, "Accepted connection.");
 		printf("\n");
@@ -384,17 +463,17 @@ void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* 
 
 	if( *requested_file == '\0' )
 	{
-		snprintf( absolute_path, sizeof(absolute_path), "%s", app_state.path );
+		snprintf( absolute_path, sizeof(absolute_path), "%s", app_state->path );
 	}
 	else
 	{
-		snprintf( absolute_path, sizeof(absolute_path), "%s/%s", app_state.path, requested_file );
+		snprintf( absolute_path, sizeof(absolute_path), "%s/%s", app_state->path, requested_file );
 	}
 	absolute_path[ sizeof(absolute_path) - 1 ] = '\0';
 
 	if( is_directory( absolute_path ) )
 	{
-		if( app_state.verbose )
+		if( app_state->verbose )
 		{
 			print_verbosef(peer_address_str, "Sending directory contents for \"%s\"", absolute_path );
 			printf("\n");
@@ -406,7 +485,7 @@ void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* 
 		textbuffer_printf( &body_buffer, "<!DOCTYPE html>\n" );
 		textbuffer_printf( &body_buffer, "<html>\n" );
 		textbuffer_printf( &body_buffer, "<header>\n" );
-		textbuffer_printf( &body_buffer, "    <title> %s </title>\n", app_state.title );
+		textbuffer_printf( &body_buffer, "    <title> %s </title>\n", app_state->title );
 		textbuffer_printf( &body_buffer, "    <link rel='stylesheet' href='http://yui.yahooapis.com/pure/0.6.0/pure-min.css'>\n" );
 		textbuffer_printf( &body_buffer, "    <style>\n" );
 		textbuffer_printf( &body_buffer, "    body {\n" );
@@ -432,7 +511,7 @@ void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* 
 		textbuffer_printf( &body_buffer, "</header>\n" );
 		textbuffer_printf( &body_buffer, "<body>\n" );
 		textbuffer_printf( &body_buffer, "<div class='content'>\n" );
-		textbuffer_printf( &body_buffer, "    <h1> %s </h1>\n", app_state.title );
+		textbuffer_printf( &body_buffer, "    <h1> %s </h1>\n", app_state->title );
 		textbuffer_printf( &body_buffer, "    <p><a href='/' title='Return to the parent directory'> Parent Directory </a></p>\n" );
 
 		file_entry_t* files = NULL;
@@ -500,7 +579,7 @@ void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* 
 	}
 	else if( file_exists(absolute_path) )
 	{
-		if( app_state.verbose )
+		if( app_state->verbose )
 		{
 			print_verbosef(peer_address_str, "Requested file \"%s\" ", absolute_path );
 			printf("\n");
@@ -550,7 +629,7 @@ void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* 
 
 	}
 
-	if( app_state.verbose )
+	if( app_state->verbose )
 	{
 		print_verbosef(peer_address_str, "Closing connection." );
 		printf("\n");
@@ -635,7 +714,7 @@ copychar:
 	*t = '\0';
 }
 
-void about( int argc, char* argv[] )
+void about( int argc, const char* argv[] )
 {
 	printf( "Host This v%s\n", VERSION );
 	printf( "Copyright (c) 2016, Joe Marrero.\n");
@@ -651,11 +730,7 @@ void about( int argc, char* argv[] )
 
 	printf( "\n" );
 
-	printf( "Command Line Options:\n" );
-	printf( "    %-2s, %-12s  %-50s\n", "-v", "--verbose", "Toggles verbose mode." );
-	printf( "    %-2s, %-12s  %-50s\n", "-4", "--ip4", "Toggles IPv4 mode." );
-	printf( "    %-2s, %-12s  %-50s\n", "-p", "--port", "Sets the port that the web server listens on (default is 8080)." );
-	printf( "    %-2s, %-12s  %-50s\n", "-t", "--title", "Sets the title on the web server." );
+	cmd_opt_print_help( OPTIONS, OPTIONS_COUNT );
 
 	printf( "\n" );
 }
