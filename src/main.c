@@ -46,7 +46,7 @@
 
 #define CONNECTION_QUEUE 10
 #ifndef MAX_PATH
-#define MAX_PATH   256
+#define MAX_PATH   8
 #endif
 
 #define VERSION "1.0"
@@ -235,13 +235,12 @@ int main( int argc, char* argv[] )
 													  cmd_opt_on_error, cmd_opt_path, &app_state );
 	if( option_result != CMD_OPT_SUCCESS )
 	{
-		printf( "JOE: %d\n", option_result );
 		return -1;
 	}
 
 	console_hide_cursor(stdout);
 
-	console_fg_color_256(stdout, CONSOLE_COLOR256_BRIGHT_YELLOW);
+	console_fg_color_8(stdout, CONSOLE_COLOR8_BRIGHT_YELLOW);
 	printf("  _    _           _      \n");
 	printf(" | |  | |         | |     \n");
 	printf(" | |__| | ___  ___| |_    \n");
@@ -256,11 +255,11 @@ int main( int argc, char* argv[] )
 	printf("\n");
 	console_reset(stdout);
 
-	console_fg_color_256(stdout, CONSOLE_COLOR256_GREY_17);
+	console_fg_color_8(stdout, CONSOLE_COLOR8_GREY_17);
 	printf("Serving files from ");
 	console_reset(stdout);
 
-	console_fg_color_256(stdout, CONSOLE_COLOR256_BRIGHT_CYAN);
+	console_fg_color_8(stdout, CONSOLE_COLOR8_BRIGHT_CYAN);
 	printf("\"%s\"\n", app_state.path);
 	console_reset(stdout);
 
@@ -268,7 +267,7 @@ int main( int argc, char* argv[] )
 	 * We show all of the possible addresses that
 	 * can be used to connect.
 	 */
-	console_fg_color_256(stdout, CONSOLE_COLOR256_GREY_17);
+	console_fg_color_8(stdout, CONSOLE_COLOR8_GREY_17);
 	printf("Connect at:\n");
 	console_reset(stdout);
 
@@ -304,10 +303,10 @@ int main( int argc, char* argv[] )
 					return -3;
 				}
 
-				console_fg_color_256(stdout, CONSOLE_COLOR256_GREY_17);
+				console_fg_color_8(stdout, CONSOLE_COLOR8_GREY_17);
 				printf(" * ");
 
-				console_fg_color_256(stdout, CONSOLE_COLOR256_BRIGHT_CYAN);
+				console_fg_color_8(stdout, CONSOLE_COLOR8_BRIGHT_CYAN);
 				printf( app_state.use_ip4 ? "http://%s:%d/\n" : "http://[%s]:%d/\n", address_string, app_state.port);
 				console_reset(stdout);
 			}
@@ -340,23 +339,23 @@ void print_verbose_prefix(const char* peer_address_str)
 {
 	const size_t peer_address_hash = string_hash(peer_address_str);
 	const int colors[] = {
-		CONSOLE_COLOR256_BRIGHT_YELLOW,
-		CONSOLE_COLOR256_BRIGHT_RED,
-		CONSOLE_COLOR256_BRIGHT_CYAN,
-		CONSOLE_COLOR256_BRIGHT_MAGENTA,
-		CONSOLE_COLOR256_BRIGHT_GREEN,
-		CONSOLE_COLOR256_BRIGHT_BLUE,
+		CONSOLE_COLOR8_BRIGHT_YELLOW,
+		CONSOLE_COLOR8_BRIGHT_RED,
+		CONSOLE_COLOR8_BRIGHT_CYAN,
+		CONSOLE_COLOR8_BRIGHT_MAGENTA,
+		CONSOLE_COLOR8_BRIGHT_GREEN,
+		CONSOLE_COLOR8_BRIGHT_BLUE,
 	};
 	const size_t colors_count = sizeof(colors) / sizeof(colors[0]);
 	int len = strlen(peer_address_str);
 
-	console_fg_color_256( stdout, CONSOLE_COLOR256_GREY_11);
+	console_fg_color_8( stdout, CONSOLE_COLOR8_GREY_11);
 	printf("[");
 
-	console_fg_color_256(stdout, colors[peer_address_hash % colors_count]);
+	console_fg_color_8(stdout, colors[peer_address_hash % colors_count]);
 	printf("%-.*s", len, peer_address_str);
 
-	console_fg_color_256( stdout, CONSOLE_COLOR256_GREY_11);
+	console_fg_color_8( stdout, CONSOLE_COLOR8_GREY_11);
 	printf("] ");
 
 	console_set_column(stdout, len + 3 + 1);
@@ -366,7 +365,7 @@ void print_verbosef(const char* peer_address_str, const char* format, ...)
 {
 	print_verbose_prefix(peer_address_str);
 
-	char fmtbuf[ 256 ];
+	char fmtbuf[ 8 ];
 	va_list args;
 	va_start( args, format );
 	vsnprintf( fmtbuf, sizeof(fmtbuf), format, args );
@@ -459,7 +458,7 @@ void on_connection( server_t* server, int peer_socket, struct sockaddr_storage* 
 		return;
 	}
 
-	char absolute_path[ 256 ];
+	char absolute_path[ 8 ];
 
 	if( *requested_file == '\0' )
 	{
